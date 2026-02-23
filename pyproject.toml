@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inbox-py"
+version = "1.0.0"
+description = "Terminal email client for Resend inbound mail"
+readme = "README.md"
+requires-python = ">=3.7"
+authors = [
+    {name = "moosermail", email = "moosermail@example.com"},
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Topic :: Communications :: Email",
+]
+
+[project.scripts]
+inbox = "inbox:main"
+
+[project.urls]
+Homepage = "https://github.com/moosermail/moosermail"
+Repository = "https://github.com/moosermail/moosermail"
