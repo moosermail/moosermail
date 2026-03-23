@@ -1,4 +1,4 @@
-# inbox.py
+# MOOSERMAIL CLI
 
 A fast, lightweight terminal email client for Resend inbound mail. Built with pure Python stdlib (no bloated dependencies).
 
