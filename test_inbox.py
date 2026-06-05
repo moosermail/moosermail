@@ -295,3 +295,73 @@ class TestBuildParser(unittest.TestCase):
     def test_config_set_key_value(self):
         args = self.parser.parse_args(["config", "from_address=me@example.com"])
         self.assertEqual(args.set, ["from_address=me@example.com"])
+
+
+class TestAttachmentsView(unittest.TestCase):
+    """Tests for AttachmentsView download logic (no curses required)."""
+
+    def _make_view(self, attachments, tmp_dir):
+        scr  = MagicMock()
+        scr.getmaxyx.return_value = (24, 80)
+        view = inbox.AttachmentsView(scr, attachments)
+        view._download_dir = lambda: tmp_dir
+        return view
+
+    def test_download_creates_file(self):
+        import base64
+        content = base64.b64encode(b"hello attachment").decode()
+        att     = {"filename": "test.txt", "content_type": "text/plain", "content": content}
+        with tempfile.TemporaryDirectory() as tmp:
+            view = self._make_view([att], tmp)
+            view._download(att)
+            dest = os.path.join(tmp, "test.txt")
+            self.assertTrue(os.path.exists(dest))
+            with open(dest, "rb") as f:
+                self.assertEqual(f.read(), b"hello attachment")
+
+    def test_download_no_content_sets_msg(self):
+        att  = {"filename": "empty.txt", "content_type": "text/plain", "content": ""}
+        with tempfile.TemporaryDirectory() as tmp:
+            view = self._make_view([att], tmp)
+            view._download(att)
+            self.assertIn("No content", view.msg)
+
+    def test_download_avoids_overwrite(self):
+        import base64
+        content = base64.b64encode(b"data").decode()
+        att     = {"filename": "file.txt", "content_type": "text/plain", "content": content}
+        with tempfile.TemporaryDirectory() as tmp:
+            # Pre-create the file so overwrite avoidance kicks in
+            with open(os.path.join(tmp, "file.txt"), "w") as f:
+                f.write("original")
+            view = self._make_view([att], tmp)
+            view._download(att)
+            files = [x for x in os.listdir(tmp) if x.startswith("file") and x.endswith(".txt")]
+            self.assertEqual(len(files), 2)
+
+    def test_download_binary_content(self):
+        import base64
+        data    = bytes(range(256))
+        content = base64.b64encode(data).decode()
+        att     = {"filename": "binary.bin", "content_type": "application/octet-stream", "content": content}
+        with tempfile.TemporaryDirectory() as tmp:
+            view = self._make_view([att], tmp)
+            view._download(att)
+            dest = os.path.join(tmp, "binary.bin")
+            with open(dest, "rb") as f:
+                self.assertEqual(f.read(), data)
+
+    def test_empty_attachments_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            view = self._make_view([], tmp)
+            self.assertEqual(len(view.attachments), 0)
+
+    def test_download_sets_success_msg(self):
+        import base64
+        content = base64.b64encode(b"x").decode()
+        att     = {"filename": "ok.txt", "content_type": "text/plain", "content": content}
+        with tempfile.TemporaryDirectory() as tmp:
+            view = self._make_view([att], tmp)
+            view._download(att)
+            self.assertIn("Saved", view.msg)
+            self.assertIn("ok.txt", view.msg)
