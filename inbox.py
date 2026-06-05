@@ -12,12 +12,12 @@ USAGE
   chmod +x inbox.py && ./inbox.py
 
 INBOX KEYS
-  ↑/↓ or j/k   Navigate list      Enter       Open email
+  ↑/↓ or j/k   Move in list       Enter       Open email
   PgUp/PgDn     Scroll preview     r           Reply
   c             Compose new        R           Refresh
   d             Mark read          s           Sent folder
-  D             Drafts             ?           Help
-  q             Quit
+  D             Drafts             a           Attachments
+  ?             Help               q           Quit
 
 COMPOSE / REPLY
   Tab           Next field         Shift+Tab   Prev field
@@ -1102,6 +1102,131 @@ class SentView:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Attachments viewer
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AttachmentsView:
+    """
+    Overlay listing attachments from a fetched email.
+    Enter / d  Download selected file to ~/Downloads/
+    Esc / q    Close
+    """
+
+    def __init__(self, scr, attachments):
+        self.scr         = scr
+        self.attachments = attachments
+        self.selected    = 0
+        self.msg         = ""
+
+    @staticmethod
+    def _download_dir():
+        dl = os.path.expanduser("~/Downloads")
+        if os.path.isdir(dl):
+            return dl
+        return os.path.expanduser("~")
+
+    def _download(self, att):
+        import base64
+        raw = att.get("content", "")
+        if not raw:
+            self.msg = "No content to download."
+            return
+        try:
+            data   = base64.b64decode(raw)
+            name   = att.get("filename") or "attachment"
+            dest   = os.path.join(self._download_dir(), name)
+            # Don't overwrite silently
+            if os.path.exists(dest):
+                base, ext = os.path.splitext(name)
+                import time
+                dest = os.path.join(self._download_dir(), f"{base}_{int(time.time())}{ext}")
+            with open(dest, "wb") as f:
+                f.write(data)
+            self.msg = f"Saved: {dest}"
+        except Exception as ex:
+            self.msg = f"Error: {ex}"
+
+    def _draw(self):
+        self.scr.erase()
+        h, w = self.scr.getmaxyx()
+        title = " ATTACHMENTS  Enter/d Download  Esc Close "
+        try:
+            self.scr.addstr(0, 0, title.ljust(w - 1)[:w - 1],
+                            _a(CP_COMPOSE, curses.A_BOLD))
+        except curses.error:
+            pass
+
+        if not self.attachments:
+            try:
+                self.scr.addstr(2, 2, "No attachments.", _a(CP_DIM))
+                self.scr.addstr(3, 2, "Press Esc to close.", _a(CP_DIM))
+            except curses.error:
+                pass
+            self.scr.refresh()
+            return
+
+        list_h = h - 3
+        off    = max(0, self.selected - list_h + 1) if self.selected >= list_h else 0
+
+        for i in range(list_h):
+            idx = off + i
+            if idx >= len(self.attachments):
+                break
+            att      = self.attachments[idx]
+            fname    = att.get("filename") or "(unnamed)"
+            ctype    = att.get("content_type") or att.get("type") or ""
+            raw      = att.get("content", "")
+            try:
+                import base64 as _b64
+                size_b = len(_b64.b64decode(raw)) if raw else 0
+                if size_b >= 1024 * 1024:
+                    size_s = f"{size_b / 1048576:.1f} MB"
+                elif size_b >= 1024:
+                    size_s = f"{size_b / 1024:.1f} KB"
+                else:
+                    size_s = f"{size_b} B"
+            except Exception:
+                size_s = ""
+            line = f"  {fname}  {ctype}  {size_s}"[:w - 2]
+            try:
+                if idx == self.selected:
+                    self.scr.addstr(1 + i, 0, line.ljust(w - 1)[:w - 1],
+                                    _a(CP_SEL, curses.A_BOLD))
+                else:
+                    self.scr.addstr(1 + i, 0, line, _a(CP_DIM))
+            except curses.error:
+                pass
+
+        if self.msg:
+            try:
+                self.scr.addstr(h - 1, 0, self.msg[:w - 1], _a(CP_STATUS))
+            except curses.error:
+                pass
+        self.scr.refresh()
+
+    def run(self):
+        while True:
+            self._draw()
+            try:
+                key = _getwch(self.scr)
+            except curses.error:
+                continue
+            kint = key if isinstance(key, int) else ord(key)
+
+            if kint in (27, curses.KEY_LEFT, ord('q')):
+                return
+            elif kint in (curses.KEY_UP, ord('k')):
+                self.selected = max(0, self.selected - 1)
+                self.msg = ""
+            elif kint in (curses.KEY_DOWN, ord('j')):
+                self.selected = min(len(self.attachments) - 1, self.selected + 1)
+                self.msg = ""
+            elif kint in (curses.KEY_ENTER, ord('\n'), ord('\r'), ord('d')):
+                if self.attachments:
+                    self._download(self.attachments[self.selected])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Compose / Reply view (full-screen overlay)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1591,6 +1716,7 @@ class InboxTUI:
             "  s             Open sent folder",
             "  R             Refresh inbox from server",
             "  d             Mark selected as read",
+            "  a             View / download attachments",
             "  ? / h         This help",
             "  q             Quit",
             "",
@@ -1684,6 +1810,17 @@ class InboxTUI:
         SentView(self.scr).run()
         self.scr.clear()
 
+    def do_attachments(self):
+        if not self.full_email:
+            if self.emails:
+                self.load_full()
+            else:
+                self.status = "No email selected."
+                return
+        atts = self.full_email.get("attachments") or []
+        AttachmentsView(self.scr, atts).run()
+        self.scr.clear()
+
     # ── main loop ─────────────────────────────────────────────────────────────
 
     def run(self):
@@ -1771,6 +1908,11 @@ class InboxTUI:
             elif key == ord('s'):
                 curses.nocbreak(); curses.cbreak()
                 self.do_sent()
+                curses.halfdelay(10)
+                ticks_since_refresh = 0
+            elif key == ord('a'):
+                curses.nocbreak(); curses.cbreak()
+                self.do_attachments()
                 curses.halfdelay(10)
                 ticks_since_refresh = 0
             elif key in (ord('?'), ord('h')):
