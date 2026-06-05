@@ -232,3 +232,66 @@ class TestStripHtml(unittest.TestCase):
     def test_plain_text_unchanged(self):
         result = inbox.strip_html("just plain text")
         self.assertIn("just plain text", result)
+
+
+class TestBuildParser(unittest.TestCase):
+    """Tests for build_parser argument structure."""
+
+    def setUp(self):
+        self.parser = inbox.build_parser()
+
+    def test_default_profile_is_default(self):
+        args = self.parser.parse_args([])
+        self.assertEqual(args.profile, "default")
+
+    def test_profile_flag_accepted(self):
+        args = self.parser.parse_args(["--profile", "work"])
+        self.assertEqual(args.profile, "work")
+
+    def test_profile_before_subcommand(self):
+        args = self.parser.parse_args(["--profile", "home", "list"])
+        self.assertEqual(args.profile, "home")
+        self.assertEqual(args.cmd, "list")
+
+    def test_list_subcommand(self):
+        args = self.parser.parse_args(["list"])
+        self.assertEqual(args.cmd, "list")
+
+    def test_read_subcommand_requires_id(self):
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["read"])
+
+    def test_read_subcommand_with_id(self):
+        args = self.parser.parse_args(["read", "abc123"])
+        self.assertEqual(args.id, "abc123")
+
+    def test_send_requires_to_and_subject(self):
+        with self.assertRaises(SystemExit):
+            self.parser.parse_args(["send", "--subject", "hi"])
+
+    def test_send_full_args(self):
+        args = self.parser.parse_args([
+            "send", "--to", "a@b.com", "--subject", "Test", "--body", "Hello"
+        ])
+        self.assertEqual(args.to, ["a@b.com"])
+        self.assertEqual(args.subject, "Test")
+        self.assertEqual(args.body, "Hello")
+
+    def test_send_multiple_to(self):
+        args = self.parser.parse_args([
+            "send", "--to", "a@b.com", "--to", "c@d.com", "--subject", "Hi"
+        ])
+        self.assertEqual(len(args.to), 2)
+
+    def test_no_subcommand_gives_none_cmd(self):
+        args = self.parser.parse_args([])
+        self.assertIsNone(args.cmd)
+
+    def test_config_subcommand_no_args(self):
+        args = self.parser.parse_args(["config"])
+        self.assertEqual(args.cmd, "config")
+        self.assertEqual(args.set, [])
+
+    def test_config_set_key_value(self):
+        args = self.parser.parse_args(["config", "from_address=me@example.com"])
+        self.assertEqual(args.set, ["from_address=me@example.com"])
