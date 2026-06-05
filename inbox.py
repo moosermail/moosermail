@@ -56,25 +56,68 @@ DEFAULT_CFG = {
     "app_name":     "INBOX",
 }
 
-def load_config():
-    cfg = dict(DEFAULT_CFG)
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, _, v = line.partition("=")
-                cfg[k.strip().lower()] = v.strip().strip('"').strip("'")
+PROFILE = "default"
+
+def _parse_ini(path):
+    """Return dict of {section_name: {key: value}}. Flat files map to None key."""
+    sections = {}
+    current  = None
+    if not os.path.exists(path):
+        return sections
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("[") and line.endswith("]"):
+                current = line[1:-1].strip()
+                if current not in sections:
+                    sections[current] = {}
+                continue
+            if "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            k = k.strip().lower()
+            v = v.strip().strip('"').strip("'")
+            if current is None:
+                sections.setdefault(None, {})[k] = v
+            else:
+                sections[current][k] = v
+    return sections
+
+def load_config(profile=None):
+    if profile is None:
+        profile = PROFILE
+    cfg      = dict(DEFAULT_CFG)
+    sections = _parse_ini(CONFIG_FILE)
+    if not sections:
+        return cfg
+    if None in sections:
+        # Flat (legacy) format -- treat whole file as default profile
+        cfg.update(sections[None])
+    else:
+        if "default" in sections:
+            cfg.update(sections["default"])
+        if profile != "default" and profile in sections:
+            cfg.update(sections[profile])
     return cfg
 
-def save_config(cfg):
+def save_config(cfg, profile=None):
+    if profile is None:
+        profile = PROFILE
+    sections = _parse_ini(CONFIG_FILE)
+    # Migrate flat format to sectioned on first profile-aware save
+    if None in sections:
+        flat = sections.pop(None)
+        sections.setdefault("default", {}).update(flat)
+    sections[profile] = {k: v for k, v in cfg.items()}
     os.makedirs(os.path.dirname(CONFIG_FILE) or ".", exist_ok=True)
-    lines = [f"# inbox.py configuration\n"]
-    for k, v in cfg.items():
-        lines.append(f'{k} = "{v}"\n')
     with open(CONFIG_FILE, "w") as f:
-        f.writelines(lines)
+        f.write("# moosermail configuration\n")
+        for sect, keys in sections.items():
+            f.write(f"\n[{sect}]\n")
+            for k, v in keys.items():
+                f.write(f'{k} = "{v}"\n')
 
 def load_seen():
     if not os.path.exists(STATE_FILE):
@@ -1827,6 +1870,61 @@ def cli_send(args):
         print(f"Error: {ex}", file=sys.stderr); sys.exit(1)
 
 
+def cli_reply(args):
+    if not API_KEY:
+        print("Error: RESEND_API_KEY not set.", file=sys.stderr); sys.exit(1)
+    cfg = load_config()
+    from_addr = args.from_addr or cfg.get("from_address", "")
+    if not from_addr:
+        print("Error: specify --from or set from_address in config.", file=sys.stderr)
+        sys.exit(1)
+    try:
+        e = api_get_email(args.id)
+    except Exception as ex:
+        print(f"Error fetching email: {ex}", file=sys.stderr); sys.exit(1)
+
+    reply_to_addr = e.get("from", "")
+    subject = e.get("subject", "")
+    if not subject.lower().startswith("re:"):
+        subject = f"Re: {subject}"
+    msg_id = e.get("message_id", "")
+
+    if args.body:
+        body = args.body
+    elif not sys.stdin.isatty():
+        body = sys.stdin.read()
+    else:
+        print("Body (Ctrl+D to finish):")
+        lines = []
+        try:
+            while True:
+                lines.append(input())
+        except EOFError:
+            pass
+        body = "\n".join(lines)
+    if not body.strip():
+        print("Error: empty body.", file=sys.stderr); sys.exit(1)
+
+    payload = {
+        "from":    from_addr,
+        "to":      [reply_to_addr],
+        "subject": subject,
+        "text":    body,
+    }
+    if msg_id:
+        payload["headers"] = {"In-Reply-To": msg_id, "References": msg_id}
+
+    if args.dry_run:
+        print(json.dumps(payload, indent=2))
+        return
+
+    try:
+        r = api_send(payload)
+        print(f"Sent. ID: {r.get('id','?')}")
+    except Exception as ex:
+        print(f"Error: {ex}", file=sys.stderr); sys.exit(1)
+
+
 def cli_config(args):
     cfg = load_config()
     if args.set:
@@ -1884,8 +1982,12 @@ def tui_main(stdscr):
 
 def build_parser():
     p = __import__("argparse").ArgumentParser(
-        prog="inbox",
+        prog="mooser",
         description="Terminal email client for Resend inbound mail.",
+    )
+    p.add_argument(
+        "--profile", default="default", metavar="NAME",
+        help="Named config profile (section in ~/.inboxpy.conf, default: default)",
     )
     sub = p.add_subparsers(dest="cmd")
 
@@ -1912,6 +2014,15 @@ def build_parser():
     s.add_argument("--reply-to", default="",     dest="reply_to",
                    metavar="MSG_ID", help="Message-ID to reply to (sets In-Reply-To)")
 
+    # reply
+    rp = sub.add_parser("reply", help="Reply to an email by ID")
+    rp.add_argument("id", help="Email ID to reply to")
+    rp.add_argument("--body",  default="", help="Reply body (or pipe stdin)")
+    rp.add_argument("--from",  default="", dest="from_addr",
+                    metavar="ADDR", help="Sender (defaults to config from_address)")
+    rp.add_argument("--dry-run", action="store_true", dest="dry_run",
+                    help="Print the payload as JSON instead of sending")
+
     # config
     c = sub.add_parser("config", help="View or set config values")
     c.add_argument("set", nargs="*", metavar="key=value",
@@ -1933,6 +2044,8 @@ def main():
         cli_read(args)
     elif args.cmd == "send":
         cli_send(args)
+    elif args.cmd == "reply":
+        cli_reply(args)
     elif args.cmd == "config":
         cli_config(args)
     else:
