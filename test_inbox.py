@@ -182,3 +182,53 @@ class TestFmtDate(unittest.TestCase):
         result = inbox.fmt_date("2020-01-01T00:00:00Z")
         self.assertIsInstance(result, str)
         self.assertGreater(len(result), 0)
+
+
+class TestShortFrom(unittest.TestCase):
+    """Tests for short_from address formatting."""
+
+    def test_name_and_angle_bracket(self):
+        result = inbox.short_from("Alice Smith <alice@example.com>")
+        self.assertEqual(result, "Alice Smith")
+
+    def test_quoted_name(self):
+        result = inbox.short_from('"Bob Jones" <bob@example.com>')
+        self.assertEqual(result, "Bob Jones")
+
+    def test_bare_email_returns_local_at_domain(self):
+        result = inbox.short_from("carol@example.com")
+        self.assertEqual(result, "carol@example")
+
+    def test_empty_angle_bracket_falls_back_to_at_split(self):
+        result = inbox.short_from(" <dave@example.com>")
+        self.assertIn("dave", result)
+
+    def test_plain_string_no_at(self):
+        result = inbox.short_from("unknown")
+        self.assertEqual(result, "unknown")
+
+
+class TestStripHtml(unittest.TestCase):
+    """Tests for strip_html HTML-to-text conversion."""
+
+    def test_simple_tags_removed(self):
+        result = inbox.strip_html("<p>Hello world</p>")
+        self.assertIn("Hello world", result)
+        self.assertNotIn("<p>", result)
+
+    def test_br_becomes_newline(self):
+        result = inbox.strip_html("line1<br>line2")
+        self.assertIn("\n", result)
+
+    def test_entities_decoded(self):
+        result = inbox.strip_html("AT&amp;T &lt;rocks&gt;")
+        self.assertIn("AT&T", result)
+        self.assertIn("<rocks>", result)
+
+    def test_empty_string(self):
+        result = inbox.strip_html("")
+        self.assertEqual(result.strip(), "")
+
+    def test_plain_text_unchanged(self):
+        result = inbox.strip_html("just plain text")
+        self.assertIn("just plain text", result)
