@@ -599,3 +599,101 @@ class TestCliListJson(unittest.TestCase):
         self.assertNotIn("{", output)
         self.assertIn("e1", output)
         self.assertIn("Hello", output)
+
+
+class TestCliListFilters(unittest.TestCase):
+    """Tests for --limit and --unread flags on list command."""
+
+    def setUp(self):
+        self._orig_apikey = inbox.API_KEY
+        inbox.API_KEY     = "re_test_key"
+
+    def tearDown(self):
+        inbox.API_KEY = self._orig_apikey
+
+    def _make_emails(self, n):
+        return [
+            {
+                "id":         f"e{i}",
+                "from":       f"sender{i}@example.com",
+                "subject":    f"Subject {i}",
+                "created_at": f"2025-06-0{i}T10:00:00Z",
+            }
+            for i in range(1, n + 1)
+        ]
+
+    def test_limit_flag_passed_to_api(self):
+        import io
+        parser     = inbox.build_parser()
+        args       = parser.parse_args(["list", "--limit", "3"])
+        call_args  = {}
+
+        def fake_api_list(limit):
+            call_args["limit"] = limit
+            return (self._make_emails(3), False)
+
+        with patch.object(inbox, "api_list", side_effect=fake_api_list):
+            with patch.object(inbox, "load_seen", return_value=set()):
+                with patch("sys.stdout", new_callable=io.StringIO):
+                    inbox.cli_list(args)
+
+        self.assertEqual(call_args["limit"], 3)
+
+    def test_unread_filter_hides_seen_emails(self):
+        import io
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["list", "--unread"])
+        emails = self._make_emails(4)
+        seen   = {"e1", "e3"}
+
+        with patch.object(inbox, "api_list", return_value=(emails, False)):
+            with patch.object(inbox, "load_seen", return_value=seen):
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    inbox.cli_list(args)
+                    output = mock_out.getvalue()
+
+        self.assertNotIn("e1", output)
+        self.assertIn("e2", output)
+        self.assertNotIn("e3", output)
+        self.assertIn("e4", output)
+
+    def test_unread_filter_with_all_seen_produces_no_output(self):
+        import io
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["list", "--unread"])
+        emails = self._make_emails(2)
+
+        with patch.object(inbox, "api_list", return_value=(emails, False)):
+            with patch.object(inbox, "load_seen", return_value={"e1", "e2"}):
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    inbox.cli_list(args)
+                    output = mock_out.getvalue()
+
+        self.assertEqual(output.strip(), "")
+
+    def test_unread_and_json_combined(self):
+        import io
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["list", "--unread", "--json"])
+        emails = self._make_emails(3)
+        seen   = {"e1", "e3"}
+
+        with patch.object(inbox, "api_list", return_value=(emails, False)):
+            with patch.object(inbox, "load_seen", return_value=seen):
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    inbox.cli_list(args)
+                    output = mock_out.getvalue()
+
+        items = json.loads(output)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["id"], "e2")
+
+    def test_limit_flag_accepted_by_parser(self):
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["list", "--limit", "10"])
+        self.assertEqual(args.limit, 10)
+
+    def test_unread_flag_accepted_by_parser(self):
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["list", "--unread"])
+        self.assertTrue(args.unread)
