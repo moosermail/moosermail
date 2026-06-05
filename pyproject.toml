@@ -3,13 +3,13 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "inbox-py"
-version = "1.0.0"
-description = "Terminal email client for Resend inbound mail"
+name = "moosermail"
+version = "1.1.0"
+description = "Terminal email client for Moosermail and Resend inbound mail"
 readme = "README.md"
 requires-python = ">=3.7"
 authors = [
-    {name = "moosermail", email = "moosermail@example.com"},
+    {name = "moosermail", email = "cloud@creayodev.com"},
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -20,8 +20,8 @@ classifiers = [
 ]
 
 [project.scripts]
-inbox = "inbox:main"
+mooser = "inbox:main"
 
 [project.urls]
-Homepage = "https://github.com/moosermail/moosermail"
+Homepage = "https://mooser.email"
 Repository = "https://github.com/moosermail/moosermail"
