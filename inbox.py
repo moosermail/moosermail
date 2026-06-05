@@ -11,6 +11,19 @@ USAGE
   export RESEND_API_KEY="re_xxxxxxxxxxxx"
   chmod +x inbox.py && ./inbox.py
 
+SUBCOMMANDS
+  mooser                  Open TUI inbox
+  mooser list             Print inbox as plain text
+  mooser list --json      Output inbox as JSON array
+  mooser list --unread    Show only unread emails
+  mooser list --limit N   Fetch at most N emails
+  mooser search <query>   Search inbox by from/subject/body
+  mooser read <id>        Print a single email by ID
+  mooser send             Send an email from the command line
+  mooser reply <id>       Reply to an email by ID
+  mooser config           View or set config values
+  mooser --version        Print version and exit
+
 INBOX KEYS
   ↑/↓ or j/k   Move in list       Enter       Open email
   PgUp/PgDn     Scroll preview     r           Reply
@@ -1971,6 +1984,54 @@ def cli_list(args):
         print("  ... more emails not shown (increase list_limit in config)")
 
 
+def cli_search(args):
+    if not API_KEY:
+        print("Error: RESEND_API_KEY not set.", file=sys.stderr); sys.exit(1)
+    cfg   = load_config()
+    seen  = load_seen()
+    limit = args.limit if args.limit is not None else int(cfg.get("list_limit", 50))
+    try:
+        emails, _ = api_list(limit)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr); sys.exit(1)
+
+    needle  = args.query.lower()
+    matched = []
+    for e in emails:
+        haystack = " ".join([
+            e.get("from",    ""),
+            e.get("subject", ""),
+            e.get("text",    "") or "",
+        ]).lower()
+        if needle in haystack:
+            matched.append(e)
+
+    if getattr(args, "json_out", False):
+        out = [
+            {
+                "id":         e["id"],
+                "from":       e.get("from", ""),
+                "subject":    e.get("subject", ""),
+                "created_at": e.get("created_at", ""),
+                "read":       e["id"] in seen,
+            }
+            for e in matched
+        ]
+        print(json.dumps(out, indent=2))
+        return
+
+    if not matched:
+        print(f"No results for '{args.query}'")
+        return
+
+    for e in matched:
+        marker = "NEW" if e["id"] not in seen else "   "
+        date   = e.get("created_at", "")[:10]
+        frm    = short_from(e.get("from", ""))[:30]
+        subj   = e.get("subject", "(no subject)")[:60]
+        print(f"[{marker}] {e['id']}  {date}  {frm:<30}  {subj}")
+
+
 def cli_read(args):
     if not API_KEY:
         print("Error: RESEND_API_KEY not set.", file=sys.stderr); sys.exit(1)
@@ -2188,6 +2249,14 @@ def build_parser():
     s.add_argument("--reply-to", default="",     dest="reply_to",
                    metavar="MSG_ID", help="Message-ID to reply to (sets In-Reply-To)")
 
+    # search
+    srch = sub.add_parser("search", help="Search inbox by keyword (matches from, subject, body)")
+    srch.add_argument("query",  help="Case-insensitive search string")
+    srch.add_argument("--json", action="store_true", dest="json_out",
+                      help="Output as JSON array instead of plain text")
+    srch.add_argument("--limit", type=int, default=None, metavar="N",
+                      help="Number of emails to fetch before filtering (default: config list_limit)")
+
     # reply
     rp = sub.add_parser("reply", help="Reply to an email by ID")
     rp.add_argument("id", help="Email ID to reply to")
@@ -2217,6 +2286,8 @@ def main():
         _curses_check.wrapper(tui_main)
     elif args.cmd == "list":
         cli_list(args)
+    elif args.cmd == "search":
+        cli_search(args)
     elif args.cmd == "read":
         cli_read(args)
     elif args.cmd == "send":
