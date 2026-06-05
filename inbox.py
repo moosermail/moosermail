@@ -1935,11 +1935,19 @@ def cli_list(args):
         print("Error: RESEND_API_KEY not set.", file=sys.stderr); sys.exit(1)
     cfg   = load_config()
     seen  = load_seen()
-    limit = int(cfg.get("list_limit", 50))
+
+    arg_limit  = getattr(args, "limit", None)
+    cfg_limit  = int(cfg.get("list_limit", 50))
+    fetch_limit = arg_limit if arg_limit is not None else cfg_limit
+
     try:
-        emails, has_more = api_list(limit)
+        emails, has_more = api_list(fetch_limit)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr); sys.exit(1)
+
+    if getattr(args, "unread", False):
+        emails = [e for e in emails if e["id"] not in seen]
+
     if getattr(args, "json_out", False):
         out = []
         for e in emails:
@@ -1952,13 +1960,14 @@ def cli_list(args):
             })
         print(json.dumps(out, indent=2))
         return
+
     for e in emails:
         marker = "NEW" if e["id"] not in seen else "   "
         date   = e.get("created_at", "")[:10]
         frm    = short_from(e.get("from", ""))[:30]
         subj   = e.get("subject", "(no subject)")[:60]
         print(f"[{marker}] {e['id']}  {date}  {frm:<30}  {subj}")
-    if has_more:
+    if has_more and not getattr(args, "unread", False):
         print("  ... more emails not shown (increase list_limit in config)")
 
 
@@ -2157,6 +2166,10 @@ def build_parser():
     lst = sub.add_parser("list", help="Print inbox as plain text and exit")
     lst.add_argument("--json", action="store_true", dest="json_out",
                      help="Output as JSON array instead of plain text")
+    lst.add_argument("--limit", type=int, default=None, metavar="N",
+                     help="Maximum number of emails to show (overrides config list_limit)")
+    lst.add_argument("--unread", action="store_true",
+                     help="Show only unread (unseen) emails")
 
     # read
     r = sub.add_parser("read", help="Print a single email by ID and exit")
