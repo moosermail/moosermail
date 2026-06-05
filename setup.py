@@ -5,18 +5,22 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-    name="inbox-py",
-    version="1.0.0",
+    name="moosermail",
+    version="1.1.0",
     author="moosermail",
-    description="Terminal email client for Resend inbound mail",
+    author_email="cloud@creayodev.com",
+    description="Terminal email client for Moosermail and Resend inbound mail",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/moosermail/moosermail",
+    url="https://mooser.email",
+    project_urls={
+        "Repository": "https://github.com/moosermail/moosermail",
+    },
     py_modules=["inbox"],
     python_requires=">=3.7",
     entry_points={
         "console_scripts": [
-            "inbox=inbox:main",
+            "mooser=inbox:main",
         ],
     },
     classifiers=[
