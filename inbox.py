@@ -1940,6 +1940,18 @@ def cli_list(args):
         emails, has_more = api_list(limit)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr); sys.exit(1)
+    if getattr(args, "json_out", False):
+        out = []
+        for e in emails:
+            out.append({
+                "id":         e["id"],
+                "from":       e.get("from", ""),
+                "subject":    e.get("subject", ""),
+                "created_at": e.get("created_at", ""),
+                "read":       e["id"] in seen,
+            })
+        print(json.dumps(out, indent=2))
+        return
     for e in emails:
         marker = "NEW" if e["id"] not in seen else "   "
         date   = e.get("created_at", "")[:10]
@@ -1947,7 +1959,7 @@ def cli_list(args):
         subj   = e.get("subject", "(no subject)")[:60]
         print(f"[{marker}] {e['id']}  {date}  {frm:<30}  {subj}")
     if has_more:
-        print("  … more emails not shown (increase list_limit in config)")
+        print("  ... more emails not shown (increase list_limit in config)")
 
 
 def cli_read(args):
@@ -2142,7 +2154,9 @@ def build_parser():
     sub.add_parser("tui",  help="Open the interactive TUI inbox (default)")
 
     # list
-    sub.add_parser("list", help="Print inbox as plain text and exit")
+    lst = sub.add_parser("list", help="Print inbox as plain text and exit")
+    lst.add_argument("--json", action="store_true", dest="json_out",
+                     help="Output as JSON array instead of plain text")
 
     # read
     r = sub.add_parser("read", help="Print a single email by ID and exit")
