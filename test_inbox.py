@@ -486,3 +486,116 @@ class TestCliRead(unittest.TestCase):
         with patch.object(inbox, "api_get_email", side_effect=RuntimeError("not found")):
             with self.assertRaises(SystemExit):
                 inbox.cli_read(args)
+
+
+class TestVersion(unittest.TestCase):
+    """Tests for VERSION constant and --version flag."""
+
+    def test_version_constant_exists(self):
+        self.assertTrue(hasattr(inbox, "VERSION"))
+        self.assertIsInstance(inbox.VERSION, str)
+
+    def test_version_constant_format(self):
+        parts = inbox.VERSION.split(".")
+        self.assertEqual(len(parts), 3, "VERSION should be semver x.y.z")
+        for part in parts:
+            self.assertTrue(part.isdigit(), f"VERSION part '{part}' is not numeric")
+
+    def test_version_flag_in_parser(self):
+        parser = inbox.build_parser()
+        # --version triggers SystemExit(0)
+        with self.assertRaises(SystemExit) as ctx:
+            parser.parse_args(["--version"])
+        self.assertEqual(ctx.exception.code, 0)
+
+    def test_version_output_contains_mooser(self):
+        import io
+        parser  = inbox.build_parser()
+        buf     = io.StringIO()
+        with patch("sys.stdout", buf):
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["--version"])
+        self.assertIn(inbox.VERSION, buf.getvalue())
+
+
+class TestCliListJson(unittest.TestCase):
+    """Tests for cli_list --json output."""
+
+    def setUp(self):
+        self._orig_apikey = inbox.API_KEY
+        inbox.API_KEY     = "re_test_key"
+
+    def tearDown(self):
+        inbox.API_KEY = self._orig_apikey
+
+    def _fake_emails(self):
+        return [
+            {
+                "id":         "e1",
+                "from":       "alice@example.com",
+                "subject":    "Hello",
+                "created_at": "2025-06-01T10:00:00Z",
+            },
+            {
+                "id":         "e2",
+                "from":       "bob@example.com",
+                "subject":    "World",
+                "created_at": "2025-06-02T11:00:00Z",
+            },
+        ]
+
+    def test_json_output_is_valid_json(self):
+        import io
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["list", "--json"])
+        with patch.object(inbox, "api_list", return_value=(self._fake_emails(), False)):
+            with patch.object(inbox, "load_seen", return_value=set()):
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    inbox.cli_list(args)
+                    output = mock_out.getvalue()
+        parsed = json.loads(output)
+        self.assertIsInstance(parsed, list)
+        self.assertEqual(len(parsed), 2)
+
+    def test_json_output_contains_expected_fields(self):
+        import io
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["list", "--json"])
+        with patch.object(inbox, "api_list", return_value=(self._fake_emails(), False)):
+            with patch.object(inbox, "load_seen", return_value=set()):
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    inbox.cli_list(args)
+                    output = mock_out.getvalue()
+        items = json.loads(output)
+        first = items[0]
+        self.assertIn("id",         first)
+        self.assertIn("from",       first)
+        self.assertIn("subject",    first)
+        self.assertIn("created_at", first)
+        self.assertIn("read",       first)
+
+    def test_json_read_flag_reflects_seen_state(self):
+        import io
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["list", "--json"])
+        with patch.object(inbox, "api_list", return_value=(self._fake_emails(), False)):
+            with patch.object(inbox, "load_seen", return_value={"e1"}):
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    inbox.cli_list(args)
+                    output = mock_out.getvalue()
+        items = json.loads(output)
+        self.assertTrue(items[0]["read"])
+        self.assertFalse(items[1]["read"])
+
+    def test_plain_list_unchanged_without_json_flag(self):
+        import io
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["list"])
+        with patch.object(inbox, "api_list", return_value=(self._fake_emails(), False)):
+            with patch.object(inbox, "load_seen", return_value=set()):
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    inbox.cli_list(args)
+                    output = mock_out.getvalue()
+        self.assertNotIn("{", output)
+        self.assertIn("e1", output)
+        self.assertIn("Hello", output)
