@@ -73,3 +73,69 @@ class TestConfigParsing(unittest.TestCase):
     def test_parse_ini_missing_file(self):
         result = inbox._parse_ini("/nonexistent/path/config.conf")
         self.assertEqual(result, {})
+
+
+class TestLoadSaveConfig(unittest.TestCase):
+    """Tests for load_config and save_config with profile support."""
+
+    def setUp(self):
+        self.tmp    = tempfile.TemporaryDirectory()
+        self.conf   = os.path.join(self.tmp.name, "test.conf")
+        self._orig_file    = inbox.CONFIG_FILE
+        self._orig_profile = inbox.PROFILE
+        inbox.CONFIG_FILE  = self.conf
+
+    def tearDown(self):
+        inbox.CONFIG_FILE = self._orig_file
+        inbox.PROFILE     = self._orig_profile
+        self.tmp.cleanup()
+
+    def test_load_defaults_when_no_file(self):
+        cfg = inbox.load_config("default")
+        self.assertEqual(cfg["list_limit"], "50")
+        self.assertEqual(cfg["from_address"], "")
+
+    def test_save_and_load_default_profile(self):
+        inbox.PROFILE = "default"
+        inbox.save_config({"from_address": "a@b.com", "list_limit": "25", "app_name": "TEST"})
+        cfg = inbox.load_config("default")
+        self.assertEqual(cfg["from_address"], "a@b.com")
+        self.assertEqual(cfg["list_limit"], "25")
+
+    def test_save_and_load_named_profile(self):
+        inbox.PROFILE = "work"
+        inbox.save_config({"from_address": "work@corp.com", "list_limit": "100", "app_name": "WORK"})
+        inbox.PROFILE = "default"
+        inbox.save_config({"from_address": "me@home.com", "list_limit": "50", "app_name": "HOME"})
+
+        cfg_work = inbox.load_config("work")
+        cfg_def  = inbox.load_config("default")
+        self.assertEqual(cfg_work["from_address"], "work@corp.com")
+        self.assertEqual(cfg_def["from_address"], "me@home.com")
+
+    def test_named_profile_falls_back_to_default_keys(self):
+        inbox.PROFILE = "default"
+        inbox.save_config({"from_address": "base@example.com", "list_limit": "30", "app_name": "BASE"})
+        inbox.PROFILE = "work"
+        inbox.save_config({"from_address": "work@example.com", "list_limit": "30", "app_name": "BASE"})
+
+        cfg = inbox.load_config("work")
+        self.assertEqual(cfg["from_address"], "work@example.com")
+
+    def test_flat_config_migrates_to_default_section(self):
+        with open(self.conf, "w") as f:
+            f.write('from_address = "flat@example.com"\nlist_limit = "77"\n')
+        cfg = inbox.load_config("default")
+        self.assertEqual(cfg["from_address"], "flat@example.com")
+        self.assertEqual(cfg["list_limit"], "77")
+
+    def test_save_preserves_other_profiles(self):
+        inbox.PROFILE = "alpha"
+        inbox.save_config({"from_address": "alpha@x.com", "list_limit": "10", "app_name": "A"})
+        inbox.PROFILE = "beta"
+        inbox.save_config({"from_address": "beta@x.com", "list_limit": "20", "app_name": "B"})
+        inbox.PROFILE = "alpha"
+        inbox.save_config({"from_address": "alpha2@x.com", "list_limit": "10", "app_name": "A"})
+
+        self.assertEqual(inbox.load_config("beta")["from_address"], "beta@x.com")
+        self.assertEqual(inbox.load_config("alpha")["from_address"], "alpha2@x.com")
