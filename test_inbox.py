@@ -697,3 +697,89 @@ class TestCliListFilters(unittest.TestCase):
         parser = inbox.build_parser()
         args   = parser.parse_args(["list", "--unread"])
         self.assertTrue(args.unread)
+
+
+class TestCliSearch(unittest.TestCase):
+    """Tests for mooser search subcommand."""
+
+    def setUp(self):
+        self._orig_apikey = inbox.API_KEY
+        inbox.API_KEY     = "re_test_key"
+
+    def tearDown(self):
+        inbox.API_KEY = self._orig_apikey
+
+    def _emails(self):
+        return [
+            {"id": "e1", "from": "alice@example.com",  "subject": "Hello world",    "created_at": "2025-06-01T00:00:00Z", "text": "Hi there"},
+            {"id": "e2", "from": "bob@company.io",     "subject": "Invoice 1042",   "created_at": "2025-06-02T00:00:00Z", "text": "Please find attached"},
+            {"id": "e3", "from": "carol@example.com",  "subject": "Re: Hello",      "created_at": "2025-06-03T00:00:00Z", "text": "Replying here"},
+            {"id": "e4", "from": "dave@example.com",   "subject": "Unrelated",      "created_at": "2025-06-04T00:00:00Z", "text": "Something else"},
+        ]
+
+    def _run_search(self, query, extra_args=None):
+        import io
+        parser = inbox.build_parser()
+        cmd    = ["search", query] + (extra_args or [])
+        args   = parser.parse_args(cmd)
+        with patch.object(inbox, "api_list", return_value=(self._emails(), False)):
+            with patch.object(inbox, "load_seen", return_value=set()):
+                with patch("sys.stdout", new_callable=io.StringIO) as mock_out:
+                    inbox.cli_search(args)
+                    return mock_out.getvalue()
+
+    def test_search_matches_subject(self):
+        output = self._run_search("hello")
+        self.assertIn("e1", output)
+        self.assertIn("e3", output)
+        self.assertNotIn("e2", output)
+        self.assertNotIn("e4", output)
+
+    def test_search_matches_from(self):
+        output = self._run_search("company.io")
+        self.assertIn("e2", output)
+        self.assertNotIn("e1", output)
+
+    def test_search_matches_body_text(self):
+        output = self._run_search("attached")
+        self.assertIn("e2", output)
+        self.assertNotIn("e1", output)
+
+    def test_search_is_case_insensitive(self):
+        output = self._run_search("INVOICE")
+        self.assertIn("e2", output)
+
+    def test_search_no_results_message(self):
+        output = self._run_search("zzznomatch")
+        self.assertIn("No results", output)
+
+    def test_search_json_output_is_valid(self):
+        output = self._run_search("hello", ["--json"])
+        items  = json.loads(output)
+        self.assertIsInstance(items, list)
+        ids    = [i["id"] for i in items]
+        self.assertIn("e1", ids)
+        self.assertIn("e3", ids)
+
+    def test_search_no_api_key_exits(self):
+        inbox.API_KEY = ""
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["search", "hello"])
+        with self.assertRaises(SystemExit):
+            inbox.cli_search(args)
+
+    def test_search_limit_passed_to_api(self):
+        call_args = {}
+
+        def fake_api_list(limit):
+            call_args["limit"] = limit
+            return ([], False)
+
+        import io
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["search", "hello", "--limit", "5"])
+        with patch.object(inbox, "api_list", side_effect=fake_api_list):
+            with patch.object(inbox, "load_seen", return_value=set()):
+                with patch("sys.stdout", new_callable=io.StringIO):
+                    inbox.cli_search(args)
+        self.assertEqual(call_args["limit"], 5)
