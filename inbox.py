@@ -37,6 +37,8 @@ import urllib.error
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlencode
 
+VERSION = "1.0.0"
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Config / State
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2126,6 +2128,9 @@ def build_parser():
     p = __import__("argparse").ArgumentParser(
         prog="mooser",
         description="Terminal email client for Resend inbound mail.",
+    )
+    p.add_argument(
+        "--version", action="version", version=f"mooser {VERSION}",
     )
     p.add_argument(
         "--profile", default="default", metavar="NAME",
