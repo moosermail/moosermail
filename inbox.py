@@ -2036,6 +2036,9 @@ def main():
     parser = build_parser()
     args   = parser.parse_args()
 
+    global PROFILE
+    PROFILE = args.profile
+
     if args.cmd in (None, "tui"):
         _curses_check.wrapper(tui_main)
     elif args.cmd == "list":
