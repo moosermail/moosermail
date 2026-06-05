@@ -1,53 +1,47 @@
-# MOOSERMAIL CLI
+# moosermail
 
-A fast, lightweight terminal email client for Resend inbound mail. Built with pure Python stdlib (no bloated dependencies).
+A fast, lightweight terminal email client for [Moosermail](https://mooser.email) and Resend inbound mail. Pure Python stdlib -- no dependencies.
 
-![inbox](mooser-comp.png)
+![moosermail TUI](mooser-comp.png)
 
 ## Features
 
-- **Terminal TUI** — Full-featured curses interface for reading, composing, and managing emails
-- **CLI mode** — Send, list, and read emails from the command line or scripts
-- **Markdown rendering** — HTML emails rendered as clean markdown in the terminal
-- **Drafts & Sent** — Local storage for drafts and sent messages
-- **Config management** — Simple config file for API keys and preferences
-- **Zero dependencies** — Uses only Python stdlib: `curses`, `urllib`, `json`
-- **Works offline** — Compose and save drafts without internet
+- **Terminal TUI** -- full curses interface for reading, composing, and managing emails
+- **CLI mode** -- send, list, and read emails from scripts or the command line
+- **Markdown rendering** -- HTML emails rendered as clean markdown in the terminal
+- **Drafts and Sent** -- local storage for drafts and sent messages
+- **Multiple profiles** -- manage separate accounts with named profiles via `--profile`
+- **Attachment support** -- view and download email attachments from the TUI
+- **Zero dependencies** -- Python stdlib only: `curses`, `urllib`, `json`
 
 ## Installation
 
 ```bash
-pip install inbox-py
+pip install moosermail
 ```
 
-Requires: Python 3.7+, Resend account
+Requires: Python 3.7+, a [Moosermail](https://mooser.email) account or direct Resend API access.
 
 ## Quick Start
 
-1. Export your Resend API key:
 ```bash
 export RESEND_API_KEY="re_xxxxxxxxxxxx"
+mooser
 ```
 
-2. Run:
-```bash
-inbox
-```
-
-First run will ask for your domain and sender address. Config is saved to `~/.inboxpy.conf`.
+First run asks for your domain and sender address. Config saves to `~/.inboxpy.conf`.
 
 ## Usage
 
 ### Interactive TUI
 
 ```bash
-inbox
+mooser
 ```
 
-**Keys:**
 | Key | Action |
 |-----|--------|
-| `↑/↓` `j/k` | Navigate emails |
+| `up/down` `j/k` | Move between emails |
 | `Enter` | Open email |
 | `PgUp/PgDn` | Scroll preview |
 | `r` | Reply |
@@ -56,57 +50,73 @@ inbox
 | `s` | Sent folder |
 | `D` | Drafts |
 | `d` | Mark read |
+| `a` | View attachments |
 | `?` | Help |
 | `q` | Quit |
 
-**Compose Keys:**
+**Compose:**
+
 | Key | Action |
 |-----|--------|
 | `Tab` / `Shift+Tab` | Next / prev field |
-| `Enter` | New line (in body) |
+| `Enter` | New line in body |
 | `Ctrl+G` | Send |
 | `Ctrl+D` | Save draft |
 | `Esc` | Cancel |
 
 ### Command Line
 
-**List emails:**
 ```bash
-inbox list
+# List inbox
+mooser list
+
+# Read an email
+mooser read <email_id>
+
+# Send
+mooser send --to user@example.com --subject "Hello" --body "Message"
+
+# Pipe body from stdin
+echo "Email body" | mooser send --to user@example.com --subject "Test"
+
+# Use a named profile
+mooser --profile work list
+mooser --profile personal send --to bob@example.com --subject "Hey"
+
+# Manage config
+mooser config
+mooser config from_address=you@domain.com
 ```
 
-**Read an email:**
+### Multiple Profiles
+
+Create separate named configs for different accounts:
+
 ```bash
-inbox read <email_id>
+mooser --profile work
+mooser --profile personal
 ```
 
-**Send email:**
-```bash
-inbox send --to user@example.com --subject "Hello" --body "Your message"
-```
-
-**Pipe body from stdin:**
-```bash
-echo "Email body" | inbox send --to user@example.com --subject "Test"
-```
-
-**Manage config:**
-```bash
-inbox config                                    # view
-inbox config from_address=you@domain.com        # set
-```
+Each profile stores its config in a separate section in `~/.inboxpy.conf`. First run with a new profile name triggers setup for that profile.
 
 ## Config
 
 Location: `~/.inboxpy.conf`
 
-```
+```ini
+[default]
 from_address = you@domain.com
 list_limit = 50
-app_name = INBOX
+app_name = MOOSER
+
+[work]
+from_address = you@company.com
+list_limit = 100
+app_name = WORK
 ```
 
-Override with env vars:
+Override defaults with env vars:
+
 ```bash
 export INBOX_CONFIG=~/.my_config
 export INBOX_STATE=~/.my_state
@@ -114,6 +124,12 @@ export INBOX_DRAFTS=~/.my_drafts
 export INBOX_SENT=~/.my_sent
 ```
 
+## Web App
+
+The CLI pairs with the [Moosermail web app](https://app.mooser.email) -- the same inbox, accessible from any browser. Same Resend API key, same emails.
+
+Source: [github.com/moosermail/mooser-web](https://github.com/moosermail/mooser-web)
+
 ## License
 
-CC-BY-NC-SA 4.0 — See LICENSE file for details
+MIT
