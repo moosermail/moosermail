@@ -139,3 +139,46 @@ class TestLoadSaveConfig(unittest.TestCase):
 
         self.assertEqual(inbox.load_config("beta")["from_address"], "beta@x.com")
         self.assertEqual(inbox.load_config("alpha")["from_address"], "alpha2@x.com")
+
+
+class TestFmtDate(unittest.TestCase):
+    """Tests for fmt_date relative time formatting."""
+
+    def _make_ts(self, delta_seconds):
+        from datetime import datetime, timezone, timedelta
+        dt = datetime.now(timezone.utc) - timedelta(seconds=delta_seconds)
+        return dt.isoformat()
+
+    def test_minutes_ago(self):
+        ts     = self._make_ts(300)   # 5 minutes ago
+        result = inbox.fmt_date(ts)
+        self.assertRegex(result, r"^\d+m$")
+
+    def test_hours_ago(self):
+        ts     = self._make_ts(7200)  # 2 hours ago
+        result = inbox.fmt_date(ts)
+        self.assertRegex(result, r"^\d+h$")
+
+    def test_yesterday(self):
+        ts     = self._make_ts(86400 + 3600)  # ~25 hours ago
+        result = inbox.fmt_date(ts)
+        self.assertEqual(result, "yest")
+
+    def test_days_ago(self):
+        ts     = self._make_ts(3 * 86400)  # 3 days ago
+        result = inbox.fmt_date(ts)
+        self.assertRegex(result, r"^\d+d$")
+
+    def test_old_date_returns_month_day(self):
+        ts     = self._make_ts(10 * 86400)  # 10 days ago
+        result = inbox.fmt_date(ts)
+        self.assertRegex(result, r"^[A-Z][a-z]+\d+$")
+
+    def test_invalid_string_truncates(self):
+        result = inbox.fmt_date("bad-date")
+        self.assertEqual(len(result), 5)
+
+    def test_z_suffix_handled(self):
+        result = inbox.fmt_date("2020-01-01T00:00:00Z")
+        self.assertIsInstance(result, str)
+        self.assertGreater(len(result), 0)
