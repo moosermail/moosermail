@@ -365,3 +365,124 @@ class TestAttachmentsView(unittest.TestCase):
             view._download(att)
             self.assertIn("Saved", view.msg)
             self.assertIn("ok.txt", view.msg)
+
+
+class TestCliSend(unittest.TestCase):
+    """Tests for cli_send payload construction."""
+
+    def setUp(self):
+        self.tmp  = tempfile.TemporaryDirectory()
+        self.conf = os.path.join(self.tmp.name, "config")
+        self._orig_file    = inbox.CONFIG_FILE
+        self._orig_profile = inbox.PROFILE
+        self._orig_apikey  = inbox.API_KEY
+        inbox.CONFIG_FILE  = self.conf
+        inbox.PROFILE      = "default"
+        inbox.API_KEY      = "re_test_key"
+        inbox.save_config({"from_address": "me@example.com", "list_limit": "50", "app_name": "TEST"})
+
+    def tearDown(self):
+        inbox.CONFIG_FILE = self._orig_file
+        inbox.PROFILE     = self._orig_profile
+        inbox.API_KEY     = self._orig_apikey
+        self.tmp.cleanup()
+
+    def test_send_uses_config_from_address(self):
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["send", "--to", "you@example.com", "--subject", "Hi", "--body", "Test"])
+        sent_payload = {}
+
+        def fake_send(payload):
+            sent_payload.update(payload)
+            return {"id": "test-id"}
+
+        with patch.object(inbox, "api_send", side_effect=fake_send):
+            with patch.object(inbox, "sent_save"):
+                inbox.cli_send(args)
+
+        self.assertEqual(sent_payload["from"], "me@example.com")
+        self.assertEqual(sent_payload["to"], ["you@example.com"])
+        self.assertEqual(sent_payload["subject"], "Hi")
+        self.assertEqual(sent_payload["text"], "Test")
+
+    def test_send_explicit_from_overrides_config(self):
+        parser = inbox.build_parser()
+        args   = parser.parse_args([
+            "send", "--to", "a@b.com", "--subject", "X",
+            "--body", "body", "--from", "other@example.com"
+        ])
+        sent_payload = {}
+
+        def fake_send(payload):
+            sent_payload.update(payload)
+            return {"id": "x"}
+
+        with patch.object(inbox, "api_send", side_effect=fake_send):
+            with patch.object(inbox, "sent_save"):
+                inbox.cli_send(args)
+
+        self.assertEqual(sent_payload["from"], "other@example.com")
+
+    def test_send_no_from_address_exits(self):
+        inbox.save_config({"from_address": "", "list_limit": "50", "app_name": "TEST"})
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["send", "--to", "a@b.com", "--subject", "X", "--body", "y"])
+        with self.assertRaises(SystemExit):
+            inbox.cli_send(args)
+
+    def test_send_multiple_recipients(self):
+        parser = inbox.build_parser()
+        args   = parser.parse_args([
+            "send", "--to", "a@b.com", "--to", "c@d.com", "--subject", "Multi", "--body", "hi"
+        ])
+        sent_payload = {}
+
+        def fake_send(payload):
+            sent_payload.update(payload)
+            return {"id": "m"}
+
+        with patch.object(inbox, "api_send", side_effect=fake_send):
+            with patch.object(inbox, "sent_save"):
+                inbox.cli_send(args)
+
+        self.assertIn("a@b.com", sent_payload["to"])
+        self.assertIn("c@d.com", sent_payload["to"])
+
+
+class TestCliRead(unittest.TestCase):
+    """Tests for cli_read output."""
+
+    def setUp(self):
+        self._orig_apikey = inbox.API_KEY
+        inbox.API_KEY     = "re_test_key"
+
+    def tearDown(self):
+        inbox.API_KEY = self._orig_apikey
+
+    def test_read_prints_headers_and_body(self):
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["read", "email-abc"])
+        email  = {
+            "id":         "email-abc",
+            "from":       "sender@example.com",
+            "to":         ["me@example.com"],
+            "subject":    "Test subject",
+            "created_at": "2025-01-01T12:00:00Z",
+            "text":       "Plain body text.",
+        }
+        with patch.object(inbox, "api_get_email", return_value=email):
+            with patch.object(inbox, "mark_seen"):
+                from io import StringIO
+                with patch("sys.stdout", new_callable=StringIO) as mock_out:
+                    inbox.cli_read(args)
+                output = mock_out.getvalue()
+        self.assertIn("sender@example.com", output)
+        self.assertIn("Test subject", output)
+        self.assertIn("Plain body text.", output)
+
+    def test_read_api_error_exits(self):
+        parser = inbox.build_parser()
+        args   = parser.parse_args(["read", "bad-id"])
+        with patch.object(inbox, "api_get_email", side_effect=RuntimeError("not found")):
+            with self.assertRaises(SystemExit):
+                inbox.cli_read(args)
